@@ -9,69 +9,61 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as PrintDispensingStoreIdRouteImport } from './routes/print.dispensing.$storeId'
-import { Route as PrintBalanceStoreIdRouteImport } from './routes/print.balance.$storeId'
+import { Route as IndexRouteImport } from './routes/index'
 
-const PrintDispensingStoreIdRoute = PrintDispensingStoreIdRouteImport.update({
-  id: '/print/dispensing/$storeId',
-  path: '/print/dispensing/$storeId',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const PrintBalanceStoreIdRoute = PrintBalanceStoreIdRouteImport.update({
-  id: '/print/balance/$storeId',
-  path: '/print/balance/$storeId',
+const IndexRoute = IndexRouteImport.update({
+  id: '/',
+  path: '/',
   getParentRoute: () => rootRouteImport,
 } as any)
 
 export interface FileRoutesByFullPath {
-  '/print/balance/$storeId': typeof PrintBalanceStoreIdRoute
-  '/print/dispensing/$storeId': typeof PrintDispensingStoreIdRoute
+  '/': typeof IndexRoute
 }
 export interface FileRoutesByTo {
-  '/print/balance/$storeId': typeof PrintBalanceStoreIdRoute
-  '/print/dispensing/$storeId': typeof PrintDispensingStoreIdRoute
+  '/': typeof IndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/print/balance/$storeId': typeof PrintBalanceStoreIdRoute
-  '/print/dispensing/$storeId': typeof PrintDispensingStoreIdRoute
+  '/': typeof IndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths: '/print/balance/$storeId' | '/print/dispensing/$storeId'
+  fullPaths: '/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/print/balance/$storeId' | '/print/dispensing/$storeId'
-  id: '__root__' | '/print/balance/$storeId' | '/print/dispensing/$storeId'
+  to: '/'
+  id: '__root__' | '/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  PrintBalanceStoreIdRoute: typeof PrintBalanceStoreIdRoute
-  PrintDispensingStoreIdRoute: typeof PrintDispensingStoreIdRoute
+  IndexRoute: typeof IndexRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/print/dispensing/$storeId': {
-      id: '/print/dispensing/$storeId'
-      path: '/print/dispensing/$storeId'
-      fullPath: '/print/dispensing/$storeId'
-      preLoaderRoute: typeof PrintDispensingStoreIdRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/print/balance/$storeId': {
-      id: '/print/balance/$storeId'
-      path: '/print/balance/$storeId'
-      fullPath: '/print/balance/$storeId'
-      preLoaderRoute: typeof PrintBalanceStoreIdRouteImport
+    '/': {
+      id: '/'
+      path: '/'
+      fullPath: '/'
+      preLoaderRoute: typeof IndexRouteImport
       parentRoute: typeof rootRouteImport
     }
   }
 }
 
 const rootRouteChildren: RootRouteChildren = {
-  PrintBalanceStoreIdRoute: PrintBalanceStoreIdRoute,
-  PrintDispensingStoreIdRoute: PrintDispensingStoreIdRoute,
+  IndexRoute: IndexRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
