@@ -9,53 +9,9 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
-import { Route as LoginRouteImport } from './routes/login'
-import { Route as AuthenticatedRouteImport } from './routes/_authenticated'
-import { Route as AuthenticatedIndexRouteImport } from './routes/_authenticated/index'
-import { Route as AuthenticatedTransfersRouteImport } from './routes/_authenticated/transfers'
-import { Route as AuthenticatedStoresRouteImport } from './routes/_authenticated/stores'
-import { Route as AuthenticatedImportRouteImport } from './routes/_authenticated/import'
-import { Route as AuthenticatedExportRouteImport } from './routes/_authenticated/export'
 import { Route as PrintDispensingStoreIdRouteImport } from './routes/print.dispensing.$storeId'
 import { Route as PrintBalanceStoreIdRouteImport } from './routes/print.balance.$storeId'
-import { Route as AuthenticatedStoresStoreIdRouteImport } from './routes/_authenticated/stores_.$storeId'
-import { Route as AuthenticatedSettingsBiometricRouteImport } from './routes/_authenticated/settings.biometric'
-import { Route as AuthenticatedAdminUsersRouteImport } from './routes/_authenticated/admin.users'
 
-const LoginRoute = LoginRouteImport.update({
-  id: '/login',
-  path: '/login',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthenticatedRoute = AuthenticatedRouteImport.update({
-  id: '/_authenticated',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const AuthenticatedIndexRoute = AuthenticatedIndexRouteImport.update({
-  id: '/',
-  path: '/',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
-const AuthenticatedTransfersRoute = AuthenticatedTransfersRouteImport.update({
-  id: '/transfers',
-  path: '/transfers',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
-const AuthenticatedStoresRoute = AuthenticatedStoresRouteImport.update({
-  id: '/stores',
-  path: '/stores',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
-const AuthenticatedImportRoute = AuthenticatedImportRouteImport.update({
-  id: '/import',
-  path: '/import',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
-const AuthenticatedExportRoute = AuthenticatedExportRouteImport.update({
-  id: '/export',
-  path: '/export',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
 const PrintDispensingStoreIdRoute = PrintDispensingStoreIdRouteImport.update({
   id: '/print/dispensing/$storeId',
   path: '/print/dispensing/$storeId',
@@ -66,166 +22,35 @@ const PrintBalanceStoreIdRoute = PrintBalanceStoreIdRouteImport.update({
   path: '/print/balance/$storeId',
   getParentRoute: () => rootRouteImport,
 } as any)
-const AuthenticatedStoresStoreIdRoute =
-  AuthenticatedStoresStoreIdRouteImport.update({
-    id: '/stores_/$storeId',
-    path: '/stores/$storeId',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
-const AuthenticatedSettingsBiometricRoute =
-  AuthenticatedSettingsBiometricRouteImport.update({
-    id: '/settings/biometric',
-    path: '/settings/biometric',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
-const AuthenticatedAdminUsersRoute = AuthenticatedAdminUsersRouteImport.update({
-  id: '/admin/users',
-  path: '/admin/users',
-  getParentRoute: () => AuthenticatedRoute,
-} as any)
 
 export interface FileRoutesByFullPath {
-  '/': typeof AuthenticatedIndexRoute
-  '/login': typeof LoginRoute
-  '/export': typeof AuthenticatedExportRoute
-  '/import': typeof AuthenticatedImportRoute
-  '/stores': typeof AuthenticatedStoresRoute
-  '/transfers': typeof AuthenticatedTransfersRoute
-  '/admin/users': typeof AuthenticatedAdminUsersRoute
-  '/settings/biometric': typeof AuthenticatedSettingsBiometricRoute
-  '/stores/$storeId': typeof AuthenticatedStoresStoreIdRoute
   '/print/balance/$storeId': typeof PrintBalanceStoreIdRoute
   '/print/dispensing/$storeId': typeof PrintDispensingStoreIdRoute
 }
 export interface FileRoutesByTo {
-  '/login': typeof LoginRoute
-  '/export': typeof AuthenticatedExportRoute
-  '/import': typeof AuthenticatedImportRoute
-  '/stores': typeof AuthenticatedStoresRoute
-  '/transfers': typeof AuthenticatedTransfersRoute
-  '/': typeof AuthenticatedIndexRoute
-  '/admin/users': typeof AuthenticatedAdminUsersRoute
-  '/settings/biometric': typeof AuthenticatedSettingsBiometricRoute
-  '/stores/$storeId': typeof AuthenticatedStoresStoreIdRoute
   '/print/balance/$storeId': typeof PrintBalanceStoreIdRoute
   '/print/dispensing/$storeId': typeof PrintDispensingStoreIdRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
-  '/_authenticated': typeof AuthenticatedRouteWithChildren
-  '/login': typeof LoginRoute
-  '/_authenticated/export': typeof AuthenticatedExportRoute
-  '/_authenticated/import': typeof AuthenticatedImportRoute
-  '/_authenticated/stores': typeof AuthenticatedStoresRoute
-  '/_authenticated/transfers': typeof AuthenticatedTransfersRoute
-  '/_authenticated/': typeof AuthenticatedIndexRoute
-  '/_authenticated/admin/users': typeof AuthenticatedAdminUsersRoute
-  '/_authenticated/settings/biometric': typeof AuthenticatedSettingsBiometricRoute
-  '/_authenticated/stores_/$storeId': typeof AuthenticatedStoresStoreIdRoute
   '/print/balance/$storeId': typeof PrintBalanceStoreIdRoute
   '/print/dispensing/$storeId': typeof PrintDispensingStoreIdRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
-  fullPaths:
-    | '/'
-    | '/login'
-    | '/export'
-    | '/import'
-    | '/stores'
-    | '/transfers'
-    | '/admin/users'
-    | '/settings/biometric'
-    | '/stores/$storeId'
-    | '/print/balance/$storeId'
-    | '/print/dispensing/$storeId'
+  fullPaths: '/print/balance/$storeId' | '/print/dispensing/$storeId'
   fileRoutesByTo: FileRoutesByTo
-  to:
-    | '/login'
-    | '/export'
-    | '/import'
-    | '/stores'
-    | '/transfers'
-    | '/'
-    | '/admin/users'
-    | '/settings/biometric'
-    | '/stores/$storeId'
-    | '/print/balance/$storeId'
-    | '/print/dispensing/$storeId'
-  id:
-    | '__root__'
-    | '/_authenticated'
-    | '/login'
-    | '/_authenticated/export'
-    | '/_authenticated/import'
-    | '/_authenticated/stores'
-    | '/_authenticated/transfers'
-    | '/_authenticated/'
-    | '/_authenticated/admin/users'
-    | '/_authenticated/settings/biometric'
-    | '/_authenticated/stores_/$storeId'
-    | '/print/balance/$storeId'
-    | '/print/dispensing/$storeId'
+  to: '/print/balance/$storeId' | '/print/dispensing/$storeId'
+  id: '__root__' | '/print/balance/$storeId' | '/print/dispensing/$storeId'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
-  AuthenticatedRoute: typeof AuthenticatedRouteWithChildren
-  LoginRoute: typeof LoginRoute
   PrintBalanceStoreIdRoute: typeof PrintBalanceStoreIdRoute
   PrintDispensingStoreIdRoute: typeof PrintDispensingStoreIdRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
-    '/login': {
-      id: '/login'
-      path: '/login'
-      fullPath: '/login'
-      preLoaderRoute: typeof LoginRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_authenticated': {
-      id: '/_authenticated'
-      path: ''
-      fullPath: '/'
-      preLoaderRoute: typeof AuthenticatedRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/_authenticated/': {
-      id: '/_authenticated/'
-      path: '/'
-      fullPath: '/'
-      preLoaderRoute: typeof AuthenticatedIndexRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/transfers': {
-      id: '/_authenticated/transfers'
-      path: '/transfers'
-      fullPath: '/transfers'
-      preLoaderRoute: typeof AuthenticatedTransfersRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/stores': {
-      id: '/_authenticated/stores'
-      path: '/stores'
-      fullPath: '/stores'
-      preLoaderRoute: typeof AuthenticatedStoresRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/import': {
-      id: '/_authenticated/import'
-      path: '/import'
-      fullPath: '/import'
-      preLoaderRoute: typeof AuthenticatedImportRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/export': {
-      id: '/_authenticated/export'
-      path: '/export'
-      fullPath: '/export'
-      preLoaderRoute: typeof AuthenticatedExportRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
     '/print/dispensing/$storeId': {
       id: '/print/dispensing/$storeId'
       path: '/print/dispensing/$storeId'
@@ -240,62 +65,23 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof PrintBalanceStoreIdRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/_authenticated/stores_/$storeId': {
-      id: '/_authenticated/stores_/$storeId'
-      path: '/stores/$storeId'
-      fullPath: '/stores/$storeId'
-      preLoaderRoute: typeof AuthenticatedStoresStoreIdRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/settings/biometric': {
-      id: '/_authenticated/settings/biometric'
-      path: '/settings/biometric'
-      fullPath: '/settings/biometric'
-      preLoaderRoute: typeof AuthenticatedSettingsBiometricRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
-    '/_authenticated/admin/users': {
-      id: '/_authenticated/admin/users'
-      path: '/admin/users'
-      fullPath: '/admin/users'
-      preLoaderRoute: typeof AuthenticatedAdminUsersRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
   }
 }
 
-interface AuthenticatedRouteChildren {
-  AuthenticatedExportRoute: typeof AuthenticatedExportRoute
-  AuthenticatedImportRoute: typeof AuthenticatedImportRoute
-  AuthenticatedStoresRoute: typeof AuthenticatedStoresRoute
-  AuthenticatedTransfersRoute: typeof AuthenticatedTransfersRoute
-  AuthenticatedIndexRoute: typeof AuthenticatedIndexRoute
-  AuthenticatedAdminUsersRoute: typeof AuthenticatedAdminUsersRoute
-  AuthenticatedSettingsBiometricRoute: typeof AuthenticatedSettingsBiometricRoute
-  AuthenticatedStoresStoreIdRoute: typeof AuthenticatedStoresStoreIdRoute
-}
-
-const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
-  AuthenticatedExportRoute: AuthenticatedExportRoute,
-  AuthenticatedImportRoute: AuthenticatedImportRoute,
-  AuthenticatedStoresRoute: AuthenticatedStoresRoute,
-  AuthenticatedTransfersRoute: AuthenticatedTransfersRoute,
-  AuthenticatedIndexRoute: AuthenticatedIndexRoute,
-  AuthenticatedAdminUsersRoute: AuthenticatedAdminUsersRoute,
-  AuthenticatedSettingsBiometricRoute: AuthenticatedSettingsBiometricRoute,
-  AuthenticatedStoresStoreIdRoute: AuthenticatedStoresStoreIdRoute,
-}
-
-const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
-  AuthenticatedRouteChildren,
-)
-
 const rootRouteChildren: RootRouteChildren = {
-  AuthenticatedRoute: AuthenticatedRouteWithChildren,
-  LoginRoute: LoginRoute,
   PrintBalanceStoreIdRoute: PrintBalanceStoreIdRoute,
   PrintDispensingStoreIdRoute: PrintDispensingStoreIdRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
+
+import type { getRouter } from './router.tsx'
+import type { startInstance } from './start.ts'
+declare module '@tanstack/react-start' {
+  interface Register {
+    ssr: true
+    router: Awaited<ReturnType<typeof getRouter>>
+    config: Awaited<ReturnType<typeof startInstance.getOptions>>
+  }
+}
