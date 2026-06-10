@@ -1,0 +1,1 @@
+alter view public.stock_on_hand set (security_invoker = true);
