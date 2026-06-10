@@ -198,47 +198,6 @@ export type Database = {
           },
         ]
       }
-      items: {
-        Row: {
-          created_at: string
-          current_quantity: number
-          department: Database["public"]["Enums"]["department"]
-          expiry_date: string | null
-          id: string
-          name: string
-          store_id: string
-          unit: string
-        }
-        Insert: {
-          created_at?: string
-          current_quantity?: number
-          department: Database["public"]["Enums"]["department"]
-          expiry_date?: string | null
-          id?: string
-          name: string
-          store_id: string
-          unit?: string
-        }
-        Update: {
-          created_at?: string
-          current_quantity?: number
-          department?: Database["public"]["Enums"]["department"]
-          expiry_date?: string | null
-          id?: string
-          name?: string
-          store_id?: string
-          unit?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "items_store_id_fkey"
-            columns: ["store_id"]
-            isOneToOne: false
-            referencedRelation: "stores"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       notifications: {
         Row: {
           category: string
@@ -397,58 +356,6 @@ export type Database = {
         }
         Relationships: []
       }
-      store_staff: {
-        Row: {
-          store_id: string
-          user_id: string
-        }
-        Insert: {
-          store_id: string
-          user_id: string
-        }
-        Update: {
-          store_id?: string
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "store_staff_store_id_fkey"
-            columns: ["store_id"]
-            isOneToOne: false
-            referencedRelation: "stores"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      stores: {
-        Row: {
-          created_at: string
-          id: string
-          name: string
-          parent_store_id: string | null
-        }
-        Insert: {
-          created_at?: string
-          id?: string
-          name: string
-          parent_store_id?: string | null
-        }
-        Update: {
-          created_at?: string
-          id?: string
-          name?: string
-          parent_store_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "stores_parent_store_id_fkey"
-            columns: ["parent_store_id"]
-            isOneToOne: false
-            referencedRelation: "stores"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       system_settings: {
         Row: {
           category: string
@@ -457,7 +364,7 @@ export type Database = {
           key: string
           updated_at: string
           updated_by: string | null
-          value: Json | null
+          value: Json
         }
         Insert: {
           category: string
@@ -466,7 +373,7 @@ export type Database = {
           key: string
           updated_at?: string
           updated_by?: string | null
-          value?: Json | null
+          value?: Json
         }
         Update: {
           category?: string
@@ -475,137 +382,9 @@ export type Database = {
           key?: string
           updated_at?: string
           updated_by?: string | null
-          value?: Json | null
+          value?: Json
         }
         Relationships: []
-      }
-      transactions: {
-        Row: {
-          created_at: string
-          department: Database["public"]["Enums"]["department"]
-          id: string
-          item_id: string
-          quantity: number
-          serial_no: number
-          staff_name_snapshot: string | null
-          staff_user_id: string | null
-          status: Database["public"]["Enums"]["tx_status"]
-          store_id: string
-          store_name_snapshot: string | null
-          transfer_to_store_id: string | null
-        }
-        Insert: {
-          created_at?: string
-          department: Database["public"]["Enums"]["department"]
-          id?: string
-          item_id: string
-          quantity: number
-          serial_no?: number
-          staff_name_snapshot?: string | null
-          staff_user_id?: string | null
-          status: Database["public"]["Enums"]["tx_status"]
-          store_id: string
-          store_name_snapshot?: string | null
-          transfer_to_store_id?: string | null
-        }
-        Update: {
-          created_at?: string
-          department?: Database["public"]["Enums"]["department"]
-          id?: string
-          item_id?: string
-          quantity?: number
-          serial_no?: number
-          staff_name_snapshot?: string | null
-          staff_user_id?: string | null
-          status?: Database["public"]["Enums"]["tx_status"]
-          store_id?: string
-          store_name_snapshot?: string | null
-          transfer_to_store_id?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "transactions_item_id_fkey"
-            columns: ["item_id"]
-            isOneToOne: false
-            referencedRelation: "items"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "transactions_store_id_fkey"
-            columns: ["store_id"]
-            isOneToOne: false
-            referencedRelation: "stores"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "transactions_transfer_to_store_id_fkey"
-            columns: ["transfer_to_store_id"]
-            isOneToOne: false
-            referencedRelation: "stores"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-      transfer_requests: {
-        Row: {
-          approved_by: string | null
-          created_at: string
-          decided_at: string | null
-          from_store_id: string
-          id: string
-          item_id: string
-          quantity: number
-          requested_by: string
-          status: Database["public"]["Enums"]["transfer_status"]
-          to_store_id: string
-        }
-        Insert: {
-          approved_by?: string | null
-          created_at?: string
-          decided_at?: string | null
-          from_store_id: string
-          id?: string
-          item_id: string
-          quantity: number
-          requested_by: string
-          status?: Database["public"]["Enums"]["transfer_status"]
-          to_store_id: string
-        }
-        Update: {
-          approved_by?: string | null
-          created_at?: string
-          decided_at?: string | null
-          from_store_id?: string
-          id?: string
-          item_id?: string
-          quantity?: number
-          requested_by?: string
-          status?: Database["public"]["Enums"]["transfer_status"]
-          to_store_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "transfer_requests_from_store_id_fkey"
-            columns: ["from_store_id"]
-            isOneToOne: false
-            referencedRelation: "stores"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "transfer_requests_item_id_fkey"
-            columns: ["item_id"]
-            isOneToOne: false
-            referencedRelation: "items"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "transfer_requests_to_store_id_fkey"
-            columns: ["to_store_id"]
-            isOneToOne: false
-            referencedRelation: "stores"
-            referencedColumns: ["id"]
-          },
-        ]
       }
       user_roles: {
         Row: {
@@ -748,17 +527,11 @@ export type Database = {
         }
         Returns: boolean
       }
-      is_admin: { Args: { _user_id: string }; Returns: boolean }
       show_limit: { Args: never; Returns: number }
       show_trgm: { Args: { "": string }; Returns: string[] }
-      staff_in_store: {
-        Args: { _store_id: string; _user_id: string }
-        Returns: boolean
-      }
     }
     Enums: {
-      app_role: "admin" | "nurse" | "staff"
-      department: "pharmacy" | "supplies"
+      app_role: "admin" | "nurse"
       inventory_txn_type:
         | "stock_in"
         | "dispensing"
@@ -767,8 +540,6 @@ export type Database = {
         | "disposal"
         | "adjustment"
         | "inventory_count"
-      transfer_status: "pending" | "approved" | "rejected"
-      tx_status: "added" | "dispensing" | "transferred" | "expired"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -896,8 +667,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      app_role: ["admin", "nurse", "staff"],
-      department: ["pharmacy", "supplies"],
+      app_role: ["admin", "nurse"],
       inventory_txn_type: [
         "stock_in",
         "dispensing",
@@ -907,8 +677,6 @@ export const Constants = {
         "adjustment",
         "inventory_count",
       ],
-      transfer_status: ["pending", "approved", "rejected"],
-      tx_status: ["added", "dispensing", "transferred", "expired"],
     },
   },
 } as const
