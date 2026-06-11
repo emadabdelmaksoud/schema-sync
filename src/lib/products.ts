@@ -131,7 +131,13 @@ export async function updateProduct(id: string, input: ProductInput) {
 
 export async function deleteProduct(id: string) {
   const { error } = await supabase.from("products").delete().eq("id", id);
-  if (error) throw error;
+  if (error) {
+    if (error.code === "23503")
+      throw new Error(
+        "This product can't be deleted because it has inventory or transaction history linked to it. Remove its stock/transactions first."
+      );
+    throw error;
+  }
 }
 
 export async function uploadProductImage(file: File) {
