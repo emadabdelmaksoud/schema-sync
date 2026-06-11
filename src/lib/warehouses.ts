@@ -111,7 +111,13 @@ export async function setWarehouseActive(id: string, is_active: boolean) {
 
 export async function deleteWarehouse(id: string) {
   const { error } = await supabase.from("warehouses" as never).delete().eq("id", id);
-  if (error) throw error;
+  if (error) {
+    if (error.code === "23503")
+      throw new Error(
+        "This warehouse can't be deleted because it has inventory batches or transactions linked to it. Deactivate it instead, or remove its stock first."
+      );
+    throw error;
+  }
 }
 
 // ===== Sections =====
@@ -180,5 +186,11 @@ export async function setSectionActive(id: string, is_active: boolean) {
 
 export async function deleteSection(id: string) {
   const { error } = await supabase.from("warehouse_sections" as never).delete().eq("id", id);
-  if (error) throw error;
+  if (error) {
+    if (error.code === "23503")
+      throw new Error(
+        "This section can't be deleted because it has inventory linked to it. Deactivate it instead, or remove its stock first."
+      );
+    throw error;
+  }
 }
