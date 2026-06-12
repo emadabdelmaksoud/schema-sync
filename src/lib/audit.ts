@@ -65,11 +65,11 @@ export async function logAudit(input: AuditLogInput): Promise<void> {
     await supabase.rpc("log_audit", {
       _action_type: input.action_type,
       _entity_type: input.entity_type,
-      _entity_id: input.entity_id ?? null,
+      _entity_id: input.entity_id ?? undefined,
       _old_values: (input.old_values as never) ?? null,
       _new_values: (input.new_values as never) ?? null,
       _metadata: (input.metadata as never) ?? null,
-      _user_agent: typeof navigator !== "undefined" ? navigator.userAgent : null,
+      _user_agent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
     });
   } catch (err) {
     // eslint-disable-next-line no-console
