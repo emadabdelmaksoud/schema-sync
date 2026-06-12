@@ -61,19 +61,15 @@ export interface AuditLogRow {
  */
 export async function logAudit(input: AuditLogInput): Promise<void> {
   try {
-    const { data: u } = await supabase.auth.getUser();
-    const user = u?.user;
-    await supabase.from("audit_logs").insert({
-      user_id: user?.id ?? null,
-      user_email: user?.email ?? null,
-      action_type: input.action_type,
-      entity_type: input.entity_type,
-      entity_id: input.entity_id ?? null,
-      old_values: (input.old_values as never) ?? null,
-      new_values: (input.new_values as never) ?? null,
-      ip_address: null, // placeholder — captured server-side if needed
-      user_agent: typeof navigator !== "undefined" ? navigator.userAgent : null,
-      metadata: (input.metadata as never) ?? null,
+    // Insert via SECURITY DEFINER RPC so users cannot forge user_id/user_email.
+    await supabase.rpc("log_audit", {
+      _action_type: input.action_type,
+      _entity_type: input.entity_type,
+      _entity_id: input.entity_id ?? undefined,
+      _old_values: (input.old_values as never) ?? null,
+      _new_values: (input.new_values as never) ?? null,
+      _metadata: (input.metadata as never) ?? null,
+      _user_agent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
     });
   } catch (err) {
     // eslint-disable-next-line no-console
