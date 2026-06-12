@@ -100,11 +100,16 @@ export async function createProduct(input: ProductInput, createdBy?: string) {
     ...(product_code ? { product_code } : {}),
     created_by: createdBy ?? null,
   };
-  const { data, error } = await supabase
-    .from("products")
-    .insert(payload as never)
-    .select()
-    .single();
+  let data: unknown, error: { code?: string; message: string } | null;
+  try {
+    ({ data, error } = await supabase
+      .from("products")
+      .insert(payload as never)
+      .select()
+      .single());
+  } catch (e) {
+    throw friendlyNetworkError(e);
+  }
   if (error) {
     if (error.code === "23505") {
       throw new Error(
@@ -120,12 +125,17 @@ export async function updateProduct(id: string, input: ProductInput) {
   const base = clean(input);
   const { product_code, ...rest } = base;
   const payload = { ...rest, ...(product_code ? { product_code } : {}) };
-  const { data, error } = await supabase
-    .from("products")
-    .update(payload as never)
-    .eq("id", id)
-    .select()
-    .single();
+  let data: unknown, error: { message: string } | null;
+  try {
+    ({ data, error } = await supabase
+      .from("products")
+      .update(payload as never)
+      .eq("id", id)
+      .select()
+      .single());
+  } catch (e) {
+    throw friendlyNetworkError(e);
+  }
   if (error) throw friendlyNetworkError(error);
   return data as Product;
 }

@@ -70,11 +70,16 @@ export async function createWarehouse(input: WarehouseInput, createdBy?: string)
     created_by: createdBy ?? null,
     ...(input.warehouse_code ? { warehouse_code: input.warehouse_code } : {}),
   };
-  const { data, error } = await supabase
-    .from("warehouses" as never)
-    .insert(payload as never)
-    .select()
-    .single();
+  let data: unknown, error: { code?: string; message: string } | null;
+  try {
+    ({ data, error } = await supabase
+      .from("warehouses" as never)
+      .insert(payload as never)
+      .select()
+      .single());
+  } catch (e) {
+    throw friendlyNetworkError(e);
+  }
   if (error) {
     if (error.code === "23505") throw new Error("A warehouse with this name or code already exists.");
     throw friendlyNetworkError(error);
@@ -89,12 +94,17 @@ export async function updateWarehouse(id: string, input: WarehouseInput) {
     is_active: input.is_active,
     ...(input.warehouse_code ? { warehouse_code: input.warehouse_code } : {}),
   };
-  const { data, error } = await supabase
-    .from("warehouses" as never)
-    .update(payload as never)
-    .eq("id", id)
-    .select()
-    .single();
+  let data: unknown, error: { code?: string; message: string } | null;
+  try {
+    ({ data, error } = await supabase
+      .from("warehouses" as never)
+      .update(payload as never)
+      .eq("id", id)
+      .select()
+      .single());
+  } catch (e) {
+    throw friendlyNetworkError(e);
+  }
   if (error) {
     if (error.code === "23505") throw new Error("A warehouse with this name or code already exists.");
     throw friendlyNetworkError(error);
