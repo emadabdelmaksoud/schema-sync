@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { z } from "zod";
+import { friendlyNetworkError } from "@/lib/net-errors";
 
 export const warehouseSchema = z
   .object({
@@ -76,7 +77,7 @@ export async function createWarehouse(input: WarehouseInput, createdBy?: string)
     .single();
   if (error) {
     if (error.code === "23505") throw new Error("A warehouse with this name or code already exists.");
-    throw error;
+    throw friendlyNetworkError(error);
   }
   return data as Warehouse;
 }
@@ -96,7 +97,7 @@ export async function updateWarehouse(id: string, input: WarehouseInput) {
     .single();
   if (error) {
     if (error.code === "23505") throw new Error("A warehouse with this name or code already exists.");
-    throw error;
+    throw friendlyNetworkError(error);
   }
   return data as Warehouse;
 }

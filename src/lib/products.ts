@@ -1,5 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
 import { z } from "zod";
+import { friendlyNetworkError } from "@/lib/net-errors";
 
 // MASTER catalog fields ONLY.
 // Expiry dates, batch numbers, and quantities live in `inventory_batches`,
@@ -110,7 +111,7 @@ export async function createProduct(input: ProductInput, createdBy?: string) {
         "A product with this name + manufacturer (or code/barcode) already exists.",
       );
     }
-    throw error;
+    throw friendlyNetworkError(error);
   }
   return data as Product;
 }
@@ -125,7 +126,7 @@ export async function updateProduct(id: string, input: ProductInput) {
     .eq("id", id)
     .select()
     .single();
-  if (error) throw error;
+  if (error) throw friendlyNetworkError(error);
   return data as Product;
 }
 
