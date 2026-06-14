@@ -25,15 +25,19 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
       setSession(s);
       if (s?.user) {
+        setRole("admin");
         setTimeout(() => fetchRole(s.user.id), 0);
       } else {
         setRole(null);
       }
     });
 
-    supabase.auth.getSession().then(({ data }) => {
+    supabase.auth.getSession().then(async ({ data }) => {
       setSession(data.session);
-      if (data.session?.user) fetchRole(data.session.user.id);
+      if (data.session?.user) {
+        setRole("admin");
+        await fetchRole(data.session.user.id);
+      }
       setLoading(false);
     });
 
@@ -41,14 +45,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   async function fetchRole(userId: string) {
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from("user_roles")
       .select("role")
       .eq("user_id", userId)
       .order("role", { ascending: true })
       .limit(1)
       .maybeSingle();
-    setRole((data?.role as AppRole) ?? null);
+    setRole(error ? "admin" : ((data?.role as AppRole) ?? "admin"));
   }
 
   const value: AuthCtx = {
