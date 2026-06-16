@@ -6,11 +6,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
-import { ScanLine, Printer, Package, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { ScanLine, Printer, Package, TriangleAlert as AlertTriangle, CircleCheck as CheckCircle2 } from "lucide-react";
 import { BarcodeScanner } from "@/components/barcode/barcode-scanner";
 import { BarcodeImage } from "@/components/barcode/barcode-image";
 import { lookupBarcode, beep, type BarcodeMatch } from "@/lib/barcode";
-import { supabase } from "@/integrations/supabase/client";
+import { getDB } from "@/lib/local-db";
 import { toast } from "sonner";
 
 export const Route = createFileRoute("/_authenticated/barcodes")({
@@ -154,12 +154,11 @@ function LabelsPanel() {
   const [showPreview, setShowPreview] = useState(false);
 
   useEffect(() => {
-    supabase
-      .from("products")
-      .select("id, product_code, product_name, barcode, manufacturer")
-      .order("product_name")
-      .limit(500)
-      .then(({ data }) => setProducts(data ?? []));
+    getDB().then(async (db) => {
+      const data = await db.getAll("products");
+      const sorted = data.sort((a, b) => a.product_name.localeCompare(b.product_name));
+      setProducts(sorted.slice(0, 500));
+    });
   }, []);
 
   const filtered = products.filter(

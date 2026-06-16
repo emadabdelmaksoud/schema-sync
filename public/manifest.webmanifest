@@ -1,0 +1,23 @@
+{
+  "name": "Clinic Inventory Hub",
+  "short_name": "ClinicInv",
+  "description": "Offline-ready clinic products & inventory management",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "/icons/icon-192.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "/icons/icon-192.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }
+  ],
+  "categories": ["medical", "business", "productivity"]
+}

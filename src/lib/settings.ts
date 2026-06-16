@@ -1,12 +1,7 @@
-import { supabase } from "@/integrations/supabase/client";
+import { getDB, generateId, now, type SystemSetting } from "./local-db";
 import { logAudit } from "./audit";
 
-export type SettingsCategory =
-  | "clinic"
-  | "inventory"
-  | "barcode"
-  | "application"
-  | "backup";
+export type SettingsCategory = "clinic" | "inventory" | "barcode" | "application" | "backup";
 
 export interface ClinicSettings {
   name: string;
@@ -84,49 +79,46 @@ export const DEFAULT_SETTINGS: AllSettings = {
   },
 };
 
-interface SettingsRow {
-  category: string;
-  key: string;
-  value: unknown;
-}
-
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const sb = supabase as any;
-
 export async function loadAllSettings(): Promise<AllSettings> {
-  const { data, error } = await sb
-    .from("system_settings")
-    .select("category,key,value");
-  if (error) throw error;
+  const db = await getDB();
+  const settings = await db.getAll("system_settings");
   const result: AllSettings = JSON.parse(JSON.stringify(DEFAULT_SETTINGS));
-  for (const row of ((data ?? []) as SettingsRow[])) {
+
+  for (const row of settings) {
     const cat = row.category as SettingsCategory;
     if (cat in result) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      (result[cat] as any)[row.key] = row.value;
+      (result[cat] as Record<string, unknown>)[row.key] = row.value;
     }
   }
+
   return result;
 }
 
 export async function saveSettingsCategory<C extends SettingsCategory>(
   category: C,
-  values: AllSettings[C],
+  values: AllSettings[C]
 ): Promise<void> {
-  const { data: u } = await supabase.auth.getUser();
-  const userId = u?.user?.id ?? null;
+  const db = await getDB();
+  const stored = localStorage.getItem("local-auth-user");
+  const user = stored ? JSON.parse(stored) : null;
+  const userId = user?.id ?? null;
 
-  const rows = Object.entries(values).map(([key, value]) => ({
-    category,
-    key,
-    value: value as never,
-    updated_by: userId,
-  }));
+  const existing = (await db.getAll("system_settings")).filter((s) => s.category === category);
+  const existingKeys = new Set(existing.map((s) => s.key));
 
-  const { error } = await sb
-    .from("system_settings")
-    .upsert(rows, { onConflict: "category,key" });
-  if (error) throw error;
+  for (const [key, value] of Object.entries(values)) {
+    const id = existing.find((s) => s.key === key)?.id ?? generateId();
+    const setting: SystemSetting = {
+      id,
+      category,
+      key,
+      value: value as Record<string, unknown>,
+      updated_by: userId,
+      created_at: existingKeys.has(key) ? (existing.find((s) => s.key === key)?.created_at ?? now()) : now(),
+      updated_at: now(),
+    };
+    await db.put("system_settings", setting);
+  }
 
   await logAudit({
     action_type: "update",
@@ -137,12 +129,10 @@ export async function saveSettingsCategory<C extends SettingsCategory>(
 }
 
 export async function uploadClinicLogo(file: File): Promise<string> {
-  const ext = file.name.split(".").pop() || "png";
-  const path = `clinic/logo-${Date.now()}.${ext}`;
-  const { error } = await supabase.storage
-    .from("clinic-assets")
-    .upload(path, file, { upsert: true, contentType: file.type });
-  if (error) throw error;
-  const { data } = supabase.storage.from("clinic-assets").getPublicUrl(path);
-  return data.publicUrl;
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
 }

@@ -3,18 +3,14 @@ import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { format } from "date-fns";
 import { ScrollText, Search } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
 import { listAuditLogs } from "@/lib/audit";
+import { getDB } from "@/lib/local-db";
 import { RoleGuard } from "@/components/auth/role-guard";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import {
-  Table, TableBody, TableCell, TableHead, TableHeader, TableRow,
-} from "@/components/ui/table";
-import {
-  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 export const Route = createFileRoute("/_authenticated/audit-logs")({
   component: () => (
@@ -49,12 +45,9 @@ function AuditLogsPage() {
   const { data: users } = useQuery({
     queryKey: ["audit", "users"],
     queryFn: async () => {
-      const { data, error } = await supabase
-        .from("profiles")
-        .select("id,email,full_name")
-        .order("email");
-      if (error) throw error;
-      return data ?? [];
+      const db = await getDB();
+      const users = await db.getAll("users");
+      return users.map((u) => ({ id: u.id, email: u.email, full_name: u.full_name }));
     },
   });
 

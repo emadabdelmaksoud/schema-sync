@@ -1,7 +1,4 @@
 import * as XLSX from "xlsx";
-import { supabase } from "@/integrations/supabase/client";
-import { createProduct } from "./products";
-import { performStockIn } from "./inventory-ops";
 
 // ---------- Generic helpers ----------
 export function downloadWorkbook(rows: Record<string, unknown>[], filename: string, sheet = "Sheet1") {
@@ -21,6 +18,7 @@ export async function parseExcelFile(file: File): Promise<Record<string, unknown
 function normHeader(s: string) {
   return s.trim().toLowerCase().replace(/\s+/g, "_");
 }
+
 function pick(row: Record<string, unknown>, ...keys: string[]) {
   const lc: Record<string, unknown> = {};
   for (const k of Object.keys(row)) lc[normHeader(k)] = row[k];
@@ -58,7 +56,7 @@ export function downloadProductTemplate() {
       },
     ],
     "products_template",
-    "Products",
+    "Products"
   );
 }
 
@@ -79,18 +77,17 @@ export interface ProductImportRow {
 }
 
 export async function validateProductRows(raw: Record<string, unknown>[]): Promise<ProductImportRow[]> {
-  // Pre-fetch existing names + codes to flag duplicates.
-  const { data: existing } = await supabase
-    .from("products")
-    .select("product_name,product_code,barcode,manufacturer");
-  const codes = new Set((existing ?? []).map((p) => p.product_code?.toLowerCase()).filter(Boolean));
-  const barcodes = new Set((existing ?? []).map((p) => p.barcode?.toLowerCase()).filter(Boolean));
-  const nameMan = new Set(
-    (existing ?? []).map((p) => `${(p.product_name ?? "").toLowerCase()}|${(p.manufacturer ?? "").toLowerCase()}`),
-  );
+  const { getDB } = await import("./local-db");
+  const db = await getDB();
+  const existing = await db.getAll("products");
+
+  const codes = new Set(existing.map((p) => p.product_code?.toLowerCase()).filter(Boolean));
+  const barcodes = new Set(existing.map((p) => p.barcode?.toLowerCase()).filter(Boolean));
+  const nameMan = new Set(existing.map((p) => `${(p.product_name ?? "").toLowerCase()}|${(p.manufacturer ?? "").toLowerCase()}`));
 
   const out: ProductImportRow[] = [];
   const seenInFile = new Set<string>();
+
   raw.forEach((row, i) => {
     const errors: string[] = [];
     const warnings: string[] = [];
@@ -105,15 +102,12 @@ export async function validateProductRows(raw: Record<string, unknown>[]): Promi
 
     if (!product_name) errors.push("product_name is required");
     if (product_name.length > 255) errors.push("product_name too long");
-    if (Number.isNaN(reorder_level) || reorder_level < 0)
-      errors.push("reorder_level must be a non-negative number");
-    if (product_code && codes.has(product_code.toLowerCase()))
-      errors.push(`product_code "${product_code}" already exists`);
-    if (barcode && barcodes.has(barcode.toLowerCase()))
-      warnings.push(`barcode "${barcode}" already used`);
+    if (Number.isNaN(reorder_level) || reorder_level < 0) errors.push("reorder_level must be a non-negative number");
+    if (product_code && codes.has(product_code.toLowerCase())) errors.push(`product_code "${product_code}" already exists`);
+    if (barcode && barcodes.has(barcode.toLowerCase())) warnings.push(`barcode "${barcode}" already used`);
+
     const key = `${product_name.toLowerCase()}|${manufacturer.toLowerCase()}`;
-    if (product_name && nameMan.has(key))
-      errors.push(`duplicate: "${product_name}" + "${manufacturer}" already exists`);
+    if (product_name && nameMan.has(key)) errors.push(`duplicate: "${product_name}" + "${manufacturer}" already exists`);
     if (seenInFile.has(key)) errors.push("duplicate row within file");
     seenInFile.add(key);
 
@@ -136,13 +130,12 @@ export async function validateProductRows(raw: Record<string, unknown>[]): Promi
   return out;
 }
 
-export async function importProductRows(
-  rows: ProductImportRow[],
-  onProgress?: (done: number, total: number) => void,
-) {
+export async function importProductRows(rows: ProductImportRow[], onProgress?: (done: number, total: number) => void) {
+  const { createProduct } = await import("./products");
   const valid = rows.filter((r) => r.errors.length === 0);
   let done = 0;
   const failures: { row: number; reason: string }[] = [];
+
   for (const r of valid) {
     try {
       await createProduct({
@@ -181,7 +174,7 @@ export function downloadInventoryTemplate() {
       },
     ],
     "inventory_stockin_template",
-    "StockIn",
+    "StockIn"
   );
 }
 
@@ -209,23 +202,26 @@ export interface InventoryImportRow {
 
 function parseDate(v: string): string | undefined {
   if (!v) return undefined;
-  // Accept yyyy-mm-dd or dd/mm/yyyy or Date strings
   const d = new Date(v);
   if (!Number.isNaN(d.getTime())) return d.toISOString().slice(0, 10);
   return undefined;
 }
 
 export async function validateInventoryRows(raw: Record<string, unknown>[]): Promise<InventoryImportRow[]> {
-  const [{ data: products }, { data: warehouses }, { data: sections }, { data: units }] = await Promise.all([
-    supabase.from("products").select("id,product_code,product_name"),
-    supabase.from("warehouses").select("id,warehouse_code,warehouse_name"),
-    supabase.from("warehouse_sections").select("id,section_name,warehouse_id"),
-    supabase.from("product_units").select("id,unit_name,product_id"),
+  const { getDB } = await import("./local-db");
+  const db = await getDB();
+  const [products, warehouses, sections, units] = await Promise.all([
+    db.getAll("products"),
+    db.getAll("warehouses"),
+    db.getAll("warehouse_sections"),
+    db.getAll("product_units"),
   ]);
-  const pMap = new Map((products ?? []).map((p) => [p.product_code?.toLowerCase(), p]));
-  const wMap = new Map((warehouses ?? []).map((w) => [w.warehouse_code?.toLowerCase(), w]));
+
+  const pMap = new Map(products.map((p) => [p.product_code?.toLowerCase(), p]));
+  const wMap = new Map(warehouses.map((w) => [w.warehouse_code?.toLowerCase(), w]));
 
   const out: InventoryImportRow[] = [];
+
   raw.forEach((row, i) => {
     const errors: string[] = [];
     const warnings: string[] = [];
@@ -244,8 +240,7 @@ export async function validateInventoryRows(raw: Record<string, unknown>[]): Pro
     if (!unit_name) errors.push("unit_name required");
     if (!quantity || quantity <= 0) errors.push("quantity must be > 0");
     if (expiry_raw && !expiry_date) errors.push(`invalid expiry_date "${expiry_raw}"`);
-    if (expiry_date && new Date(expiry_date) < new Date())
-      warnings.push(`expiry_date ${expiry_date} is in the past`);
+    if (expiry_date && new Date(expiry_date) < new Date()) warnings.push(`expiry_date ${expiry_date} is in the past`);
 
     const product = pMap.get(product_code.toLowerCase());
     const warehouse = wMap.get(warehouse_code.toLowerCase());
@@ -254,8 +249,8 @@ export async function validateInventoryRows(raw: Record<string, unknown>[]): Pro
 
     let section_id: string | null = null;
     if (warehouse && section_name) {
-      const s = (sections ?? []).find(
-        (x) => x.warehouse_id === warehouse.id && x.section_name.toLowerCase() === section_name.toLowerCase(),
+      const s = sections.find(
+        (x) => x.warehouse_id === warehouse.id && x.section_name.toLowerCase() === section_name.toLowerCase()
       );
       if (!s) errors.push(`unknown section "${section_name}" in warehouse "${warehouse_code}"`);
       else section_id = s.id;
@@ -263,9 +258,7 @@ export async function validateInventoryRows(raw: Record<string, unknown>[]): Pro
 
     let unit_id = "";
     if (product && unit_name) {
-      const u = (units ?? []).find(
-        (x) => x.product_id === product.id && x.unit_name.toLowerCase() === unit_name.toLowerCase(),
-      );
+      const u = units.find((x) => x.product_id === product.id && x.unit_name.toLowerCase() === unit_name.toLowerCase());
       if (!u) errors.push(`unit "${unit_name}" not defined for product "${product_code}"`);
       else unit_id = u.id;
     }
@@ -282,10 +275,7 @@ export async function validateInventoryRows(raw: Record<string, unknown>[]): Pro
         quantity,
         notes: notes || undefined,
       },
-      resolved:
-        product && warehouse && unit_id
-          ? { product_id: product.id, warehouse_id: warehouse.id, section_id, unit_id }
-          : undefined,
+      resolved: product && warehouse && unit_id ? { product_id: product.id, warehouse_id: warehouse.id, section_id, unit_id } : undefined,
       errors,
       warnings,
     });
@@ -293,13 +283,12 @@ export async function validateInventoryRows(raw: Record<string, unknown>[]): Pro
   return out;
 }
 
-export async function importInventoryRows(
-  rows: InventoryImportRow[],
-  onProgress?: (done: number, total: number) => void,
-) {
+export async function importInventoryRows(rows: InventoryImportRow[], onProgress?: (done: number, total: number) => void) {
+  const { performStockIn } = await import("./inventory-ops");
   const valid = rows.filter((r) => r.errors.length === 0 && r.resolved);
   const failures: { row: number; reason: string }[] = [];
   let done = 0;
+
   for (const r of valid) {
     try {
       await performStockIn({
@@ -323,106 +312,136 @@ export async function importInventoryRows(
 
 // ---------- Exports ----------
 export async function exportCurrentInventory() {
-  const { data } = await supabase
-    .from("inventory_batches")
-    .select(
-      "id,quantity_base_unit,batch_number,expiry_date,created_at,products:product_id(product_code,product_name,base_unit,category),warehouses:warehouse_id(warehouse_code,warehouse_name),warehouse_sections:section_id(section_name)",
-    )
-    .gt("quantity_base_unit", 0);
-  const rows = (data ?? []).map((b) => {
-    const p = b.products as { product_code?: string; product_name?: string; base_unit?: string; category?: string } | null;
-    const w = b.warehouses as { warehouse_code?: string; warehouse_name?: string } | null;
-    const s = b.warehouse_sections as { section_name?: string } | null;
-    return {
-      product_code: p?.product_code,
-      product_name: p?.product_name,
-      category: p?.category,
-      warehouse: w?.warehouse_name,
-      section: s?.section_name,
-      batch_number: b.batch_number,
-      expiry_date: b.expiry_date,
-      quantity: b.quantity_base_unit,
-      base_unit: p?.base_unit,
-    };
-  });
+  const { getDB } = await import("./local-db");
+  const db = await getDB();
+  const [batches, products, warehouses, sections] = await Promise.all([
+    db.getAll("inventory_batches"),
+    db.getAll("products"),
+    db.getAll("warehouses"),
+    db.getAll("warehouse_sections"),
+  ]);
+
+  const pMap = new Map(products.map((p) => [p.id, p]));
+  const wMap = new Map(warehouses.map((w) => [w.id, w]));
+  const sMap = new Map(sections.map((s) => [s.id, s]));
+
+  const rows = batches
+    .filter((b) => b.quantity_base_unit > 0)
+    .map((b) => {
+      const p = pMap.get(b.product_id);
+      const w = wMap.get(b.warehouse_id);
+      const s = b.section_id ? sMap.get(b.section_id) : null;
+      return {
+        product_code: p?.product_code,
+        product_name: p?.product_name,
+        category: p?.category,
+        warehouse: w?.warehouse_name,
+        section: s?.section_name,
+        batch_number: b.batch_number,
+        expiry_date: b.expiry_date,
+        quantity: b.quantity_base_unit,
+        base_unit: p?.base_unit,
+      };
+    });
   downloadWorkbook(rows, "current_inventory", "Inventory");
 }
 
 export async function exportTransactions(limit = 5000) {
-  const { data } = await supabase
-    .from("inventory_transactions")
-    .select(
-      "id,created_at,transaction_type,quantity,quantity_base_unit,notes,products:product_id(product_code,product_name),warehouses:warehouse_id(warehouse_name),warehouse_sections:section_id(section_name),product_units:unit_id(unit_name),inventory_batches:batch_id(batch_number,expiry_date)",
-    )
-    .order("created_at", { ascending: false })
-    .limit(limit);
-  const rows = (data ?? []).map((t) => {
-    const p = t.products as { product_code?: string; product_name?: string } | null;
-    const w = t.warehouses as { warehouse_name?: string } | null;
-    const s = t.warehouse_sections as { section_name?: string } | null;
-    const u = t.product_units as { unit_name?: string } | null;
-    const b = t.inventory_batches as { batch_number?: string; expiry_date?: string } | null;
-    return {
-      date: t.created_at,
-      type: t.transaction_type,
-      product_code: p?.product_code,
-      product_name: p?.product_name,
-      warehouse: w?.warehouse_name,
-      section: s?.section_name,
-      batch_number: b?.batch_number,
-      expiry_date: b?.expiry_date,
-      unit: u?.unit_name,
-      quantity: t.quantity,
-      quantity_base: t.quantity_base_unit,
-      notes: t.notes,
-    };
-  });
+  const { getDB } = await import("./local-db");
+  const db = await getDB();
+  const [txns, products, warehouses, sections, units, batches] = await Promise.all([
+    db.getAll("inventory_transactions"),
+    db.getAll("products"),
+    db.getAll("warehouses"),
+    db.getAll("warehouse_sections"),
+    db.getAll("product_units"),
+    db.getAll("inventory_batches"),
+  ]);
+
+  const pMap = new Map(products.map((p) => [p.id, p]));
+  const wMap = new Map(warehouses.map((w) => [w.id, w]));
+  const sMap = new Map(sections.map((s) => [s.id, s]));
+  const uMap = new Map(units.map((u) => [u.id, u]));
+  const bMap = new Map(batches.map((b) => [b.id, b]));
+
+  const rows = txns
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .slice(0, limit)
+    .map((t) => {
+      const p = pMap.get(t.product_id);
+      const w = wMap.get(t.warehouse_id);
+      const s = t.section_id ? sMap.get(t.section_id) : null;
+      const u = uMap.get(t.unit_id);
+      const b = t.batch_id ? bMap.get(t.batch_id) : null;
+      return {
+        date: t.created_at,
+        type: t.transaction_type,
+        product_code: p?.product_code,
+        product_name: p?.product_name,
+        warehouse: w?.warehouse_name,
+        section: s?.section_name,
+        batch_number: b?.batch_number,
+        expiry_date: b?.expiry_date,
+        unit: u?.unit_name,
+        quantity: t.quantity,
+        quantity_base: t.quantity_base_unit,
+        notes: t.notes,
+      };
+    });
   downloadWorkbook(rows, "transactions_history", "Transactions");
 }
 
 export async function exportExpiryReport(daysAhead = 90) {
+  const { getDB } = await import("./local-db");
+  const db = await getDB();
+  const [batches, products, warehouses, sections] = await Promise.all([
+    db.getAll("inventory_batches"),
+    db.getAll("products"),
+    db.getAll("warehouses"),
+    db.getAll("warehouse_sections"),
+  ]);
+
   const today = new Date();
   const horizon = new Date();
   horizon.setDate(today.getDate() + daysAhead);
-  const { data } = await supabase
-    .from("inventory_batches")
-    .select(
-      "quantity_base_unit,batch_number,expiry_date,products:product_id(product_code,product_name),warehouses:warehouse_id(warehouse_name),warehouse_sections:section_id(section_name)",
-    )
-    .gt("quantity_base_unit", 0)
-    .not("expiry_date", "is", null)
-    .lte("expiry_date", horizon.toISOString().slice(0, 10));
-  const rows = (data ?? []).map((b) => {
-    const p = b.products as { product_code?: string; product_name?: string } | null;
-    const w = b.warehouses as { warehouse_name?: string } | null;
-    const s = b.warehouse_sections as { section_name?: string } | null;
-    const days =
-      b.expiry_date ? Math.ceil((new Date(b.expiry_date).getTime() - today.getTime()) / 86400000) : null;
-    return {
-      product_code: p?.product_code,
-      product_name: p?.product_name,
-      warehouse: w?.warehouse_name,
-      section: s?.section_name,
-      batch_number: b.batch_number,
-      expiry_date: b.expiry_date,
-      days_to_expiry: days,
-      status: days !== null && days < 0 ? "EXPIRED" : "NEAR EXPIRY",
-      quantity: b.quantity_base_unit,
-    };
-  });
+
+  const pMap = new Map(products.map((p) => [p.id, p]));
+  const wMap = new Map(warehouses.map((w) => [w.id, w]));
+  const sMap = new Map(sections.map((s) => [s.id, s]));
+
+  const rows = batches
+    .filter((b) => b.quantity_base_unit > 0 && b.expiry_date && new Date(b.expiry_date) <= horizon)
+    .map((b) => {
+      const p = pMap.get(b.product_id);
+      const w = wMap.get(b.warehouse_id);
+      const s = b.section_id ? sMap.get(b.section_id) : null;
+      const days = b.expiry_date ? Math.ceil((new Date(b.expiry_date).getTime() - today.getTime()) / 86400000) : null;
+      return {
+        product_code: p?.product_code,
+        product_name: p?.product_name,
+        warehouse: w?.warehouse_name,
+        section: s?.section_name,
+        batch_number: b.batch_number,
+        expiry_date: b.expiry_date,
+        days_to_expiry: days,
+        status: days !== null && days < 0 ? "EXPIRED" : "NEAR EXPIRY",
+        quantity: b.quantity_base_unit,
+      };
+    });
   downloadWorkbook(rows, "expiry_report", "Expiry");
 }
 
 export async function exportLowStockReport() {
-  const [{ data: products }, { data: batches }] = await Promise.all([
-    supabase.from("products").select("id,product_code,product_name,base_unit,reorder_level"),
-    supabase.from("inventory_batches").select("product_id,quantity_base_unit"),
-  ]);
+  const { getDB } = await import("./local-db");
+  const db = await getDB();
+  const [products, batches] = await Promise.all([db.getAll("products"), db.getAll("inventory_batches")]);
+
   const totals = new Map<string, number>();
-  for (const b of batches ?? []) {
-    totals.set(b.product_id, (totals.get(b.product_id) ?? 0) + Number(b.quantity_base_unit ?? 0));
+  for (const b of batches) {
+    totals.set(b.product_id, (totals.get(b.product_id) ?? 0) + b.quantity_base_unit);
   }
-  const rows = (products ?? [])
+
+  const rows = products
     .map((p) => ({
       product_code: p.product_code,
       product_name: p.product_name,

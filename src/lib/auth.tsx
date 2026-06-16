@@ -1,11 +1,14 @@
-import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
-import type { Session, User } from "@supabase/supabase-js";
-import { supabase } from "@/integrations/supabase/client";
+import { createContext, useContext, useEffect, useState, useCallback, type ReactNode } from "react";
+import { getDB, generateId, now, type User } from "./local-db";
 
 export type AppRole = "admin" | "nurse";
 
+interface LocalSession {
+  user: User;
+}
+
 interface AuthCtx {
-  session: Session | null;
+  session: LocalSession | null;
   user: User | null;
   role: AppRole | null;
   loading: boolean;
@@ -17,67 +20,98 @@ interface AuthCtx {
 const AuthContext = createContext<AuthCtx | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [session, setSession] = useState<Session | null>(null);
-  const [role, setRole] = useState<AppRole | null>(null);
+  const [session, setSession] = useState<LocalSession | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => {
-      setSession(s);
-      if (s?.user) {
-        setRole("admin");
-        setTimeout(() => fetchRole(s.user.id), 0);
-      } else {
-        setRole(null);
+  const loadSession = useCallback(async () => {
+    try {
+      const stored = localStorage.getItem("local-auth-user");
+      if (stored) {
+        const user = JSON.parse(stored) as User;
+        setSession({ user });
       }
-    });
-
-    supabase.auth.getSession().then(async ({ data }) => {
-      setSession(data.session);
-      if (data.session?.user) {
-        setRole("admin");
-        await fetchRole(data.session.user.id);
-      }
+    } catch (e) {
+      console.error("Failed to load session:", e);
+      localStorage.removeItem("local-auth-user");
+    } finally {
       setLoading(false);
-    });
-
-    return () => sub.subscription.unsubscribe();
+    }
   }, []);
 
-  async function fetchRole(userId: string) {
-    const { data, error } = await supabase
-      .from("user_roles")
-      .select("role")
-      .eq("user_id", userId)
-      .order("role", { ascending: true })
-      .limit(1)
-      .maybeSingle();
-    setRole(error ? "admin" : ((data?.role as AppRole) ?? "admin"));
-  }
+  useEffect(() => {
+    loadSession();
+  }, [loadSession]);
+
+  const signIn = async (email: string, password: string): Promise<{ error: string | null }> => {
+    try {
+      const db = await getDB();
+      const users = await db.getAll("users");
+      const user = users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+
+      if (!user) {
+        // Auto-create user if not found (offline mode)
+        const newUser: User = {
+          id: generateId(),
+          email: email.toLowerCase(),
+          full_name: email.split("@")[0],
+          role: "admin",
+          created_at: now(),
+        };
+        await db.put("users", newUser);
+        localStorage.setItem("local-auth-user", JSON.stringify(newUser));
+        setSession({ user: newUser });
+        return { error: null };
+      }
+
+      // In offline mode, accept any password for existing users
+      localStorage.setItem("local-auth-user", JSON.stringify(user));
+      setSession({ user });
+      return { error: null };
+    } catch (e) {
+      return { error: (e as Error).message };
+    }
+  };
+
+  const signUp = async (email: string, _password: string, fullName?: string): Promise<{ error: string | null }> => {
+    try {
+      const db = await getDB();
+      const users = await db.getAll("users");
+      const existing = users.find((u) => u.email.toLowerCase() === email.toLowerCase());
+
+      if (existing) {
+        return { error: "A user with this email already exists." };
+      }
+
+      const newUser: User = {
+        id: generateId(),
+        email: email.toLowerCase(),
+        full_name: fullName || email.split("@")[0],
+        role: "admin",
+        created_at: now(),
+      };
+
+      await db.put("users", newUser);
+      localStorage.setItem("local-auth-user", JSON.stringify(newUser));
+      setSession({ user: newUser });
+      return { error: null };
+    } catch (e) {
+      return { error: (e as Error).message };
+    }
+  };
+
+  const signOut = async () => {
+    localStorage.removeItem("local-auth-user");
+    setSession(null);
+  };
 
   const value: AuthCtx = {
     session,
     user: session?.user ?? null,
-    role,
+    role: session?.user?.role ?? null,
     loading,
-    signIn: async (email, password) => {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      return { error: error?.message ?? null };
-    },
-    signUp: async (email, password, fullName) => {
-      const { error } = await supabase.auth.signUp({
-        email,
-        password,
-        options: {
-          emailRedirectTo: `${window.location.origin}/`,
-          data: { full_name: fullName ?? "" },
-        },
-      });
-      return { error: error?.message ?? null };
-    },
-    signOut: async () => {
-      await supabase.auth.signOut();
-    },
+    signIn,
+    signUp,
+    signOut,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

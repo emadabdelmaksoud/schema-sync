@@ -1,4 +1,4 @@
-import { supabase } from "@/integrations/supabase/client";
+import { getDB, generateId, now, type AuditLog, type User } from "./local-db";
 
 export type AuditActionType =
   | "create"
@@ -55,24 +55,37 @@ export interface AuditLogRow {
   created_at: string;
 }
 
-/**
- * Persist an audit log entry. Safe to call from anywhere on the client.
- * Errors are swallowed (logging shouldn't break the action that triggered it).
- */
+function getCurrentUser(): User | null {
+  try {
+    const stored = localStorage.getItem("local-auth-user");
+    return stored ? JSON.parse(stored) : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function logAudit(input: AuditLogInput): Promise<void> {
   try {
-    // Insert via SECURITY DEFINER RPC so users cannot forge user_id/user_email.
-    await supabase.rpc("log_audit", {
-      _action_type: input.action_type,
-      _entity_type: input.entity_type,
-      _entity_id: input.entity_id ?? undefined,
-      _old_values: (input.old_values as never) ?? null,
-      _new_values: (input.new_values as never) ?? null,
-      _metadata: (input.metadata as never) ?? null,
-      _user_agent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
-    });
+    const db = await getDB();
+    const user = getCurrentUser();
+
+    const entry: AuditLog = {
+      id: generateId(),
+      user_id: user?.id ?? null,
+      user_email: user?.email ?? null,
+      action_type: input.action_type,
+      entity_type: input.entity_type,
+      entity_id: input.entity_id ?? null,
+      old_values: (input.old_values as Record<string, unknown>) ?? null,
+      new_values: (input.new_values as Record<string, unknown>) ?? null,
+      ip_address: null,
+      user_agent: typeof navigator !== "undefined" ? navigator.userAgent : null,
+      metadata: (input.metadata as Record<string, unknown>) ?? null,
+      created_at: now(),
+    };
+
+    await db.put("audit_logs", entry);
   } catch (err) {
-    // eslint-disable-next-line no-console
     console.warn("[audit] failed to write log", err);
   }
 }
@@ -82,29 +95,32 @@ export interface AuditQuery {
   actionType?: string;
   entityType?: string;
   search?: string;
-  from?: string; // ISO date
-  to?: string;   // ISO date
+  from?: string;
+  to?: string;
   limit?: number;
 }
 
 export async function listAuditLogs(q: AuditQuery = {}): Promise<AuditLogRow[]> {
-  let query = supabase
-    .from("audit_logs")
-    .select("*")
-    .order("created_at", { ascending: false })
-    .limit(q.limit ?? 500);
+  const db = await getDB();
+  let logs = await db.getAll("audit_logs");
 
-  if (q.userId) query = query.eq("user_id", q.userId);
-  if (q.actionType) query = query.eq("action_type", q.actionType);
-  if (q.entityType) query = query.eq("entity_type", q.entityType);
-  if (q.from) query = query.gte("created_at", q.from);
-  if (q.to) query = query.lte("created_at", q.to);
+  if (q.userId) logs = logs.filter((l) => l.user_id === q.userId);
+  if (q.actionType) logs = logs.filter((l) => l.action_type === q.actionType);
+  if (q.entityType) logs = logs.filter((l) => l.entity_type === q.entityType);
+  if (q.from) logs = logs.filter((l) => l.created_at >= q.from!);
+  if (q.to) logs = logs.filter((l) => l.created_at <= q.to!);
   if (q.search) {
-    const s = q.search.trim();
-    if (s) query = query.or(`user_email.ilike.%${s}%,entity_id.ilike.%${s}%,action_type.ilike.%${s}%,entity_type.ilike.%${s}%`);
+    const s = q.search.toLowerCase();
+    logs = logs.filter(
+      (l) =>
+        (l.user_email && l.user_email.toLowerCase().includes(s)) ||
+        (l.entity_id && l.entity_id.toLowerCase().includes(s)) ||
+        l.action_type.toLowerCase().includes(s) ||
+        l.entity_type.toLowerCase().includes(s)
+    );
   }
 
-  const { data, error } = await query;
-  if (error) throw error;
-  return (data ?? []) as AuditLogRow[];
+  return logs
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .slice(0, q.limit ?? 500);
 }

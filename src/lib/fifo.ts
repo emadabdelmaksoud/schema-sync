@@ -1,4 +1,4 @@
-import { supabase } from "@/integrations/supabase/client";
+import { getDB } from "./local-db";
 import type { InventoryBatch } from "./inventory";
 import { recordTransaction } from "./inventory";
 import { fromBase, toBase, type ProductUnit } from "./product-units";
@@ -7,10 +7,7 @@ export const DEFAULT_NEAR_EXPIRY_DAYS = 90;
 
 export type ExpiryStatus = "ok" | "near" | "expired" | "no-expiry";
 
-export function classifyExpiry(
-  expiry: string | null | undefined,
-  nearDays = DEFAULT_NEAR_EXPIRY_DAYS,
-): ExpiryStatus {
+export function classifyExpiry(expiry: string | null | undefined, nearDays = DEFAULT_NEAR_EXPIRY_DAYS): ExpiryStatus {
   if (!expiry) return "no-expiry";
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -29,30 +26,33 @@ export function daysUntil(expiry: string | null | undefined): number | null {
   return Math.floor((exp.getTime() - today.getTime()) / 86400000);
 }
 
-/**
- * FIFO ordering: earliest expiry first (nulls last), then oldest created_at.
- * Skips zero/negative-stock and expired batches.
- */
 export async function fetchFifoBatches(
   productId: string,
   warehouseId: string,
   sectionId?: string | null,
-  opts?: { includeExpired?: boolean },
+  opts?: { includeExpired?: boolean }
 ): Promise<InventoryBatch[]> {
-  let q = supabase
-    .from("inventory_batches")
-    .select("*")
-    .eq("product_id", productId)
-    .eq("warehouse_id", warehouseId)
-    .gt("quantity_base_unit", 0);
-  if (sectionId) q = q.eq("section_id", sectionId);
-  const { data, error } = await q
-    .order("expiry_date", { ascending: true, nullsFirst: false })
-    .order("created_at", { ascending: true });
-  if (error) throw error;
-  const rows = (data ?? []) as InventoryBatch[];
-  if (opts?.includeExpired) return rows;
-  return rows.filter((b) => classifyExpiry(b.expiry_date) !== "expired");
+  const db = await getDB();
+  const batches = await db.getAll("inventory_batches");
+
+  let filtered = batches.filter(
+    (b) => b.product_id === productId && b.warehouse_id === warehouseId && b.quantity_base_unit > 0
+  );
+
+  if (sectionId) {
+    filtered = filtered.filter((b) => b.section_id === sectionId);
+  }
+
+  // Sort by expiry date (nulls last), then by created_at
+  const sorted = filtered.sort((a, b) => {
+    const aExp = a.expiry_date ? new Date(a.expiry_date).getTime() : Infinity;
+    const bExp = b.expiry_date ? new Date(b.expiry_date).getTime() : Infinity;
+    if (aExp !== bExp) return aExp - bExp;
+    return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+  });
+
+  if (opts?.includeExpired) return sorted;
+  return sorted.filter((b) => classifyExpiry(b.expiry_date) !== "expired");
 }
 
 export interface FifoAllocation {
@@ -60,17 +60,13 @@ export interface FifoAllocation {
   takeBase: number;
 }
 
-/** Greedy allocation across FIFO-ordered batches. Throws if insufficient. */
-export function planFifoAllocation(
-  batches: InventoryBatch[],
-  neededBase: number,
-): FifoAllocation[] {
+export function planFifoAllocation(batches: InventoryBatch[], neededBase: number): FifoAllocation[] {
   if (neededBase <= 0) throw new Error("Quantity must be > 0");
   const plan: FifoAllocation[] = [];
   let remaining = neededBase;
   for (const b of batches) {
     if (remaining <= 0) break;
-    const avail = Number(b.quantity_base_unit);
+    const avail = b.quantity_base_unit;
     if (avail <= 0) continue;
     const take = Math.min(avail, remaining);
     plan.push({ batch: b, takeBase: take });
@@ -78,9 +74,7 @@ export function planFifoAllocation(
   }
   if (remaining > 0.0000001) {
     const have = neededBase - remaining;
-    throw new Error(
-      `Insufficient stock. Needed ${neededBase} base units, only ${have} available.`,
-    );
+    throw new Error(`Insufficient stock. Needed ${neededBase} base units, only ${have} available.`);
   }
   return plan;
 }
@@ -90,28 +84,18 @@ interface DispenseFifoArgs {
   warehouse_id: string;
   section_id?: string | null;
   unit: ProductUnit;
-  quantity: number; // in selected unit
+  quantity: number;
   notes?: string | null;
   type?: "dispensing" | "disposal";
   allowNearExpiry?: boolean;
 }
 
-/**
- * Dispense `quantity` (in `unit`) using FIFO across batches at the location.
- * Posts one transaction per consumed batch in the same unit. Expired batches
- * are excluded. Throws if any expired batch is selected or stock is short.
- */
 export async function dispenseFifo(args: DispenseFifoArgs) {
   const txnType = args.type ?? "dispensing";
   const neededBase = toBase(args.quantity, args.unit);
-  const candidates = await fetchFifoBatches(
-    args.product_id,
-    args.warehouse_id,
-    args.section_id ?? null,
-  );
+  const candidates = await fetchFifoBatches(args.product_id, args.warehouse_id, args.section_id ?? null);
   const plan = planFifoAllocation(candidates, neededBase);
 
-  // Final guard: reject expired batches in plan
   for (const step of plan) {
     if (classifyExpiry(step.batch.expiry_date) === "expired") {
       throw new Error("Cannot dispense expired batches");
@@ -121,16 +105,18 @@ export async function dispenseFifo(args: DispenseFifoArgs) {
   const results = [];
   for (const step of plan) {
     const qtyInUnit = fromBase(step.takeBase, args.unit);
-    const txn = await recordTransaction({
-      transaction_type: txnType,
-      product_id: args.product_id,
-      batch_id: step.batch.id,
-      warehouse_id: args.warehouse_id,
-      section_id: args.section_id ?? null,
-      unit_id: args.unit.id,
-      quantity: qtyInUnit,
-      notes: args.notes ?? null,
-    });
+    const txn = await recordTransaction(
+      {
+        transaction_type: txnType,
+        product_id: args.product_id,
+        batch_id: step.batch.id,
+        warehouse_id: args.warehouse_id,
+        section_id: args.section_id ?? null,
+        unit_id: args.unit.id,
+        quantity: qtyInUnit,
+        notes: args.notes ?? null,
+      }
+    );
     results.push({ txn, batch: step.batch, qtyInUnit, qtyBase: step.takeBase });
   }
   return results;
@@ -139,42 +125,82 @@ export async function dispenseFifo(args: DispenseFifoArgs) {
 // ---------- Alerts / dashboard queries ----------
 
 export interface BatchWithRefs extends InventoryBatch {
-  products: { id: string; product_name: string; product_code: string; reorder_level: number } | null;
-  warehouses: { id: string; warehouse_name: string } | null;
-  warehouse_sections: { id: string; section_name: string } | null;
+  product_name: string;
+  product_code: string;
+  reorder_level: number;
+  warehouse_name: string;
+  section_name: string | null;
 }
 
 export async function listExpiredBatches(): Promise<BatchWithRefs[]> {
+  const db = await getDB();
+  const batches = await db.getAll("inventory_batches");
+  const products = await db.getAll("products");
+  const warehouses = await db.getAll("warehouses");
+  const sections = await db.getAll("warehouse_sections");
+
   const today = new Date().toISOString().slice(0, 10);
-  const { data, error } = await supabase
-    .from("inventory_batches")
-    .select(
-      "*, products:product_id(id,product_name,product_code,reorder_level), warehouses:warehouse_id(id,warehouse_name), warehouse_sections:section_id(id,section_name)",
-    )
-    .gt("quantity_base_unit", 0)
-    .lt("expiry_date", today)
-    .order("expiry_date", { ascending: true });
-  if (error) throw error;
-  return (data ?? []) as unknown as BatchWithRefs[];
+  const productMap = new Map(products.map((p) => [p.id, p]));
+  const warehouseMap = new Map(warehouses.map((w) => [w.id, w]));
+  const sectionMap = new Map(sections.map((s) => [s.id, s]));
+
+  return batches
+    .filter((b) => b.quantity_base_unit > 0 && b.expiry_date && b.expiry_date < today)
+    .sort((a, b) => (a.expiry_date || "").localeCompare(b.expiry_date || ""))
+    .map((b) => {
+      const p = productMap.get(b.product_id);
+      const w = warehouseMap.get(b.warehouse_id);
+      const s = b.section_id ? sectionMap.get(b.section_id) : null;
+      return {
+        ...b,
+        product_name: p?.product_name ?? "—",
+        product_code: p?.product_code ?? "",
+        reorder_level: p?.reorder_level ?? 0,
+        warehouse_name: w?.warehouse_name ?? "—",
+        section_name: s?.section_name ?? null,
+      };
+    });
 }
 
-export async function listNearExpiryBatches(
-  days = DEFAULT_NEAR_EXPIRY_DAYS,
-): Promise<BatchWithRefs[]> {
+export async function listNearExpiryBatches(days = DEFAULT_NEAR_EXPIRY_DAYS): Promise<BatchWithRefs[]> {
+  const db = await getDB();
+  const batches = await db.getAll("inventory_batches");
+  const products = await db.getAll("products");
+  const warehouses = await db.getAll("warehouses");
+  const sections = await db.getAll("warehouse_sections");
+
   const today = new Date();
   const limit = new Date();
   limit.setDate(today.getDate() + days);
-  const { data, error } = await supabase
-    .from("inventory_batches")
-    .select(
-      "*, products:product_id(id,product_name,product_code,reorder_level), warehouses:warehouse_id(id,warehouse_name), warehouse_sections:section_id(id,section_name)",
+  const todayStr = today.toISOString().slice(0, 10);
+  const limitStr = limit.toISOString().slice(0, 10);
+
+  const productMap = new Map(products.map((p) => [p.id, p]));
+  const warehouseMap = new Map(warehouses.map((w) => [w.id, w]));
+  const sectionMap = new Map(sections.map((s) => [s.id, s]));
+
+  return batches
+    .filter(
+      (b) =>
+        b.quantity_base_unit > 0 &&
+        b.expiry_date &&
+        b.expiry_date >= todayStr &&
+        b.expiry_date <= limitStr
     )
-    .gt("quantity_base_unit", 0)
-    .gte("expiry_date", today.toISOString().slice(0, 10))
-    .lte("expiry_date", limit.toISOString().slice(0, 10))
-    .order("expiry_date", { ascending: true });
-  if (error) throw error;
-  return (data ?? []) as unknown as BatchWithRefs[];
+    .sort((a, b) => (a.expiry_date || "").localeCompare(b.expiry_date || ""))
+    .map((b) => {
+      const p = productMap.get(b.product_id);
+      const w = warehouseMap.get(b.warehouse_id);
+      const s = b.section_id ? sectionMap.get(b.section_id) : null;
+      return {
+        ...b,
+        product_name: p?.product_name ?? "—",
+        product_code: p?.product_code ?? "",
+        reorder_level: p?.reorder_level ?? 0,
+        warehouse_name: w?.warehouse_name ?? "—",
+        section_name: s?.section_name ?? null,
+      };
+    });
 }
 
 export interface LowStockRow {
@@ -185,30 +211,25 @@ export interface LowStockRow {
   on_hand_base: number;
 }
 
-/** Sum on-hand per product, return those below reorder_level. */
 export async function listLowStock(): Promise<LowStockRow[]> {
-  const [{ data: batches, error: e1 }, { data: products, error: e2 }] = await Promise.all([
-    supabase.from("inventory_batches").select("product_id, quantity_base_unit"),
-    supabase.from("products").select("id, product_name, product_code, reorder_level"),
-  ]);
-  if (e1) throw e1;
-  if (e2) throw e2;
+  const db = await getDB();
+  const batches = await db.getAll("inventory_batches");
+  const products = await db.getAll("products");
+
   const onHand = new Map<string, number>();
-  for (const b of batches ?? []) {
-    onHand.set(
-      b.product_id as string,
-      (onHand.get(b.product_id as string) ?? 0) + Number(b.quantity_base_unit),
-    );
+  for (const b of batches) {
+    onHand.set(b.product_id, (onHand.get(b.product_id) ?? 0) + b.quantity_base_unit);
   }
+
   const rows: LowStockRow[] = [];
-  for (const p of products ?? []) {
-    const total = onHand.get(p.id as string) ?? 0;
-    if (Number(p.reorder_level) > 0 && total < Number(p.reorder_level)) {
+  for (const p of products) {
+    const total = onHand.get(p.id) ?? 0;
+    if (p.reorder_level > 0 && total < p.reorder_level) {
       rows.push({
-        product_id: p.id as string,
-        product_name: p.product_name as string,
-        product_code: p.product_code as string,
-        reorder_level: Number(p.reorder_level),
+        product_id: p.id,
+        product_name: p.product_name,
+        product_code: p.product_code,
+        reorder_level: p.reorder_level,
         on_hand_base: total,
       });
     }

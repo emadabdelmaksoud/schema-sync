@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { QueryClient, QueryClientProvider, useQueryClient } from "@tanstack/react-query";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   Outlet,
   Link,
@@ -11,7 +11,6 @@ import {
 
 import appCss from "../styles.css?url";
 import { AuthProvider } from "@/lib/auth";
-import { supabase } from "@/integrations/supabase/client";
 import { Toaster } from "@/components/ui/sonner";
 import { registerServiceWorker } from "@/lib/pwa";
 import { CommandPalette } from "@/components/command-palette";
@@ -86,8 +85,8 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     links: [
       { rel: "stylesheet", href: appCss },
       { rel: "manifest", href: "/manifest.webmanifest" },
-      { rel: "icon", href: "/icons/icon-192.png", type: "image/png", sizes: "192x192" },
-      { rel: "apple-touch-icon", href: "/icons/icon-192.png" },
+      { rel: "icon", href: "/icons/icon-192.svg", type: "image/svg+xml", sizes: "192x192" },
+      { rel: "apple-touch-icon", href: "/icons/icon-192.svg" },
     ],
   }),
   shellComponent: RootShell,
@@ -110,28 +109,22 @@ function RootShell({ children }: { children: React.ReactNode }) {
   );
 }
 
-function AuthSync() {
-  const router = useRouter();
-  const qc = useQueryClient();
-  useEffect(() => {
-    const { data } = supabase.auth.onAuthStateChange(() => {
-      router.invalidate();
-      qc.invalidateQueries();
-    });
-    return () => data.subscription.unsubscribe();
-  }, [router, qc]);
-  return null;
-}
-
 function RootComponent() {
   const { queryClient } = Route.useRouteContext();
+  const router = useRouter();
   useEffect(() => {
     registerServiceWorker();
-  }, []);
+    // Listen for auth changes from localStorage
+    const handler = () => {
+      router.invalidate();
+      queryClient.invalidateQueries();
+    };
+    window.addEventListener("storage", handler);
+    return () => window.removeEventListener("storage", handler);
+  }, [router, queryClient]);
   return (
     <QueryClientProvider client={queryClient}>
       <AuthProvider>
-        <AuthSync />
         <Outlet />
         <CommandPalette />
         <Toaster richColors position="top-right" closeButton />

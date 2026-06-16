@@ -1,15 +1,12 @@
-import { supabase } from "@/integrations/supabase/client";
 import { z } from "zod";
+import { getDB, generateId, now, type ProductUnit } from "./local-db";
 
 export const productUnitSchema = z
   .object({
     unit_name: z.string().trim().min(1, "Unit name is required").max(50),
-    factor_to_base: z.coerce
-      .number()
-      .positive("Factor must be greater than 0")
-      .finite(),
+    factor_to_base: z.coerce.number().positive("Factor must be greater than 0").finite(),
     is_base: z.boolean(),
-    barcode: z.string().trim().max(64),
+    barcode: z.string().trim().max(64).optional().or(z.literal("")),
     sort_order: z.coerce.number().int().min(0),
   })
   .strict()
@@ -19,24 +16,13 @@ export const productUnitSchema = z
   });
 
 export type ProductUnitInput = z.infer<typeof productUnitSchema>;
-
-export interface ProductUnit {
-  id: string;
-  product_id: string;
-  unit_name: string;
-  factor_to_base: number;
-  is_base: boolean;
-  barcode: string | null;
-  sort_order: number;
-  created_at: string;
-  updated_at: string;
-}
+export type { ProductUnit } from "./local-db";
 
 /** Convert a quantity expressed in `from` units to `to` units (same product). */
 export function convertUnits(
   qty: number,
   from: Pick<ProductUnit, "factor_to_base" | "product_id">,
-  to: Pick<ProductUnit, "factor_to_base" | "product_id">,
+  to: Pick<ProductUnit, "factor_to_base" | "product_id">
 ): number {
   if (from.product_id !== to.product_id) {
     throw new Error("Cannot convert between units of different products");
@@ -66,56 +52,66 @@ function clean(input: ProductUnitInput) {
   };
 }
 
-export async function listProductUnits(productId: string) {
-  const { data, error } = await supabase
-    .from("product_units")
-    .select("*")
-    .eq("product_id", productId)
-    .order("is_base", { ascending: false })
-    .order("factor_to_base", { ascending: true });
-  if (error) throw error;
-  return data as ProductUnit[];
+export async function listProductUnits(productId: string): Promise<ProductUnit[]> {
+  const db = await getDB();
+  const units = await db.getAllFromIndex("product_units", "by-product", productId);
+  return units.sort((a, b) => {
+    if (a.is_base !== b.is_base) return a.is_base ? -1 : 1;
+    return a.factor_to_base - b.factor_to_base;
+  });
 }
 
-export async function createProductUnit(productId: string, input: ProductUnitInput) {
-  const payload = { product_id: productId, ...clean(input) };
-  const { data, error } = await supabase
-    .from("product_units")
-    .insert(payload)
-    .select()
-    .single();
-  if (error) {
-    if (error.code === "23505") {
-      throw new Error("A unit with this name or barcode already exists for this product.");
-    }
-    throw error;
+export async function createProductUnit(productId: string, input: ProductUnitInput): Promise<ProductUnit> {
+  const db = await getDB();
+  const cleaned = clean(input);
+
+  // Check for duplicate unit name for this product
+  const existing = await db.getAllFromIndex("product_units", "by-product", productId);
+  const duplicate = existing.find((u) => u.unit_name.toLowerCase() === cleaned.unit_name.toLowerCase());
+  if (duplicate) {
+    throw new Error("A unit with this name already exists for this product.");
   }
-  return data as ProductUnit;
+
+  const unit: ProductUnit = {
+    id: generateId(),
+    product_id: productId,
+    ...cleaned,
+    created_at: now(),
+    updated_at: now(),
+  };
+
+  await db.put("product_units", unit);
+  return unit;
 }
 
-export async function updateProductUnit(id: string, input: ProductUnitInput) {
-  const { data, error } = await supabase
-    .from("product_units")
-    .update(clean(input))
-    .eq("id", id)
-    .select()
-    .single();
-  if (error) throw error;
-  return data as ProductUnit;
+export async function updateProductUnit(id: string, input: ProductUnitInput): Promise<ProductUnit> {
+  const db = await getDB();
+  const existing = await db.get("product_units", id);
+  if (!existing) throw new Error("Unit not found");
+
+  const cleaned = clean(input);
+  const updated: ProductUnit = {
+    ...existing,
+    ...cleaned,
+    updated_at: now(),
+  };
+
+  await db.put("product_units", updated);
+  return updated;
 }
 
-export async function deleteProductUnit(id: string) {
-  const { error } = await supabase.from("product_units").delete().eq("id", id);
-  if (error) throw error;
+export async function deleteProductUnit(id: string): Promise<void> {
+  const db = await getDB();
+  await db.delete("product_units", id);
 }
 
 /** Find a product unit by scanned barcode (any unit). */
-export async function findUnitByBarcode(barcode: string) {
-  const { data, error } = await supabase
-    .from("product_units")
-    .select("*, product:products(*)")
-    .eq("barcode", barcode.trim())
-    .maybeSingle();
-  if (error) throw error;
-  return data;
+export async function findUnitByBarcode(barcode: string): Promise<(ProductUnit & { product: unknown }) | null> {
+  const db = await getDB();
+  const units = await db.getAll("product_units");
+  const unit = units.find((u) => u.barcode === barcode.trim());
+  if (!unit) return null;
+
+  const product = await db.get("products", unit.product_id);
+  return { ...unit, product };
 }

@@ -1,18 +1,10 @@
-import { supabase } from "@/integrations/supabase/client";
 import { z } from "zod";
-import { friendlyNetworkError } from "@/lib/net-errors";
+import { getDB, generateId, generateCode, now, type Product, type ProductUnit } from "./local-db";
 
-// MASTER catalog fields ONLY.
-// Expiry dates, batch numbers, and quantities live in `inventory_batches`,
-// NOT here. `.strict()` rejects any such field at the validation boundary.
 export const productSchema = z
   .object({
     product_code: z.string().trim().max(50).optional().or(z.literal("")),
-    product_name: z
-      .string()
-      .trim()
-      .min(1, "Product name is required")
-      .max(255),
+    product_name: z.string().trim().min(1, "Product name is required").max(255),
     barcode: z.string().trim().max(64).optional().or(z.literal("")),
     category: z.string().trim().max(100).optional().or(z.literal("")),
     manufacturer: z.string().trim().max(255).optional().or(z.literal("")),
@@ -24,25 +16,13 @@ export const productSchema = z
   .strict();
 
 export type ProductInput = z.infer<typeof productSchema>;
+export type { Product };
 
-export interface Product {
-  id: string;
-  product_code: string;
-  product_name: string;
-  barcode: string | null;
-  category: string | null;
-  manufacturer: string | null;
-  base_unit: string;
-  reorder_level: number;
-  notes: string | null;
-  image_url: string | null;
-  created_by: string | null;
-  created_at: string;
-  updated_at: string;
+function blankToNull(v: string | undefined): string | null {
+  return v && v.length ? v : null;
 }
 
 function clean(input: ProductInput) {
-  const blankToNull = (v: string | undefined) => (v && v.length ? v : null);
   return {
     product_code: blankToNull(input.product_code),
     product_name: input.product_name,
@@ -56,109 +36,147 @@ function clean(input: ProductInput) {
   };
 }
 
-export async function listProducts(search?: string) {
-  let q = supabase
-    .from("products")
-    .select("*")
-    .order("created_at", { ascending: false });
+export async function listProducts(search?: string): Promise<Product[]> {
+  const db = await getDB();
+  let products = await db.getAll("products");
 
   if (search && search.trim()) {
-    const s = `%${search.trim()}%`;
-    q = q.or(
-      `product_name.ilike.${s},product_code.ilike.${s},barcode.ilike.${s},manufacturer.ilike.${s},category.ilike.${s}`,
+    const s = search.toLowerCase();
+    products = products.filter(
+      (p) =>
+        p.product_name.toLowerCase().includes(s) ||
+        (p.product_code && p.product_code.toLowerCase().includes(s)) ||
+        (p.barcode && p.barcode.toLowerCase().includes(s)) ||
+        (p.manufacturer && p.manufacturer.toLowerCase().includes(s)) ||
+        (p.category && p.category.toLowerCase().includes(s))
     );
   }
-  const { data, error } = await q;
-  if (error) throw error;
-  return data as Product[];
+
+  return products.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 }
 
-export async function searchProductsAutocomplete(term: string, limit = 8) {
+export async function searchProductsAutocomplete(term: string, limit = 8): Promise<Pick<Product, "id" | "product_code" | "product_name" | "manufacturer">[]> {
   if (!term.trim()) return [];
-  const s = `%${term.trim()}%`;
-  const { data, error } = await supabase
-    .from("products")
-    .select("id, product_code, product_name, manufacturer")
-    .or(`product_name.ilike.${s},product_code.ilike.${s},barcode.ilike.${s}`)
-    .limit(limit);
-  if (error) throw error;
-  return data ?? [];
+  const db = await getDB();
+  const products = await db.getAll("products");
+  const s = term.toLowerCase();
+  const filtered = products.filter(
+    (p) =>
+      p.product_name.toLowerCase().includes(s) ||
+      (p.product_code && p.product_code.toLowerCase().includes(s)) ||
+      (p.barcode && p.barcode.toLowerCase().includes(s))
+  );
+  return filtered.slice(0, limit);
 }
 
-export async function getProduct(id: string) {
-  const { data, error } = await supabase.from("products").select("*").eq("id", id).single();
-  if (error) throw error;
-  return data as Product;
+export async function getProduct(id: string): Promise<Product> {
+  const db = await getDB();
+  const product = await db.get("products", id);
+  if (!product) throw new Error("Product not found");
+  return product;
 }
 
-export async function createProduct(input: ProductInput, createdBy?: string) {
-  const base = clean(input);
-  const { product_code, ...rest } = base;
-  // Omit product_code entirely when blank so the DB trigger auto-generates it.
-  const payload = {
-    ...rest,
-    ...(product_code ? { product_code } : {}),
+export async function createProduct(input: ProductInput, createdBy?: string): Promise<Product> {
+  const db = await getDB();
+  const cleaned = clean(input);
+
+  // Check for duplicates
+  const existing = await db.getAll("products");
+  const duplicate = existing.find(
+    (p) =>
+      p.product_name.toLowerCase() === cleaned.product_name.toLowerCase() &&
+      p.manufacturer?.toLowerCase() === cleaned.manufacturer?.toLowerCase()
+  );
+  if (duplicate) {
+    throw new Error("A product with this name + manufacturer already exists.");
+  }
+
+  const product: Product = {
+    id: generateId(),
+    product_code: cleaned.product_code || generateCode("PRD"),
+    product_name: cleaned.product_name,
+    barcode: cleaned.barcode,
+    category: cleaned.category,
+    manufacturer: cleaned.manufacturer,
+    base_unit: cleaned.base_unit,
+    reorder_level: cleaned.reorder_level,
+    notes: cleaned.notes,
+    image_url: cleaned.image_url,
     created_by: createdBy ?? null,
+    created_at: now(),
+    updated_at: now(),
   };
-  let data: unknown, error: { code?: string; message: string } | null;
-  try {
-    ({ data, error } = await supabase
-      .from("products")
-      .insert(payload as never)
-      .select()
-      .single());
-  } catch (e) {
-    throw friendlyNetworkError(e);
-  }
-  if (error) {
-    if (error.code === "23505") {
-      throw new Error(
-        "A product with this name + manufacturer (or code/barcode) already exists.",
-      );
-    }
-    throw friendlyNetworkError(error);
-  }
-  return data as Product;
+
+  await db.put("products", product);
+
+  // Create base product unit
+  const baseUnit: ProductUnit = {
+    id: generateId(),
+    product_id: product.id,
+    unit_name: product.base_unit,
+    factor_to_base: 1,
+    is_base: true,
+    barcode: null,
+    sort_order: 0,
+    created_at: now(),
+    updated_at: now(),
+  };
+  await db.put("product_units", baseUnit);
+
+  return product;
 }
 
-export async function updateProduct(id: string, input: ProductInput) {
-  const base = clean(input);
-  const { product_code, ...rest } = base;
-  const payload = { ...rest, ...(product_code ? { product_code } : {}) };
-  let data: unknown, error: { message: string } | null;
-  try {
-    ({ data, error } = await supabase
-      .from("products")
-      .update(payload as never)
-      .eq("id", id)
-      .select()
-      .single());
-  } catch (e) {
-    throw friendlyNetworkError(e);
+export async function updateProduct(id: string, input: ProductInput): Promise<Product> {
+  const db = await getDB();
+  const existing = await db.get("products", id);
+  if (!existing) throw new Error("Product not found");
+
+  const cleaned = clean(input);
+  const updated: Product = {
+    ...existing,
+    product_name: cleaned.product_name,
+    barcode: cleaned.barcode,
+    category: cleaned.category,
+    manufacturer: cleaned.manufacturer,
+    base_unit: cleaned.base_unit,
+    reorder_level: cleaned.reorder_level,
+    notes: cleaned.notes,
+    image_url: cleaned.image_url,
+    updated_at: now(),
+  };
+
+  if (cleaned.product_code) {
+    updated.product_code = cleaned.product_code;
   }
-  if (error) throw friendlyNetworkError(error);
-  return data as Product;
+
+  await db.put("products", updated);
+  return updated;
 }
 
-export async function deleteProduct(id: string) {
-  const { error } = await supabase.from("products").delete().eq("id", id);
-  if (error) {
-    if (error.code === "23503")
-      throw new Error(
-        "This product can't be deleted because it has inventory or transaction history linked to it. Remove its stock/transactions first."
-      );
-    throw error;
+export async function deleteProduct(id: string): Promise<void> {
+  const db = await getDB();
+
+  // Check for related inventory
+  const batches = await db.getAll("inventory_batches");
+  const hasBatches = batches.some((b) => b.product_id === id);
+  if (hasBatches) {
+    throw new Error("This product can't be deleted because it has inventory linked to it. Remove its stock first.");
   }
+
+  // Delete related product units
+  const units = await db.getAllFromIndex("product_units", "by-product", id);
+  for (const unit of units) {
+    await db.delete("product_units", unit.id);
+  }
+
+  await db.delete("products", id);
 }
 
-export async function uploadProductImage(file: File) {
-  const ext = file.name.split(".").pop() || "jpg";
-  const path = `${crypto.randomUUID()}.${ext}`;
-  const { error } = await supabase.storage.from("product-images").upload(path, file, {
-    cacheControl: "3600",
-    upsert: false,
+export async function uploadProductImage(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
   });
-  if (error) throw error;
-  const { data } = supabase.storage.from("product-images").getPublicUrl(path);
-  return data.publicUrl;
 }

@@ -1,28 +1,24 @@
-import { supabase } from "@/integrations/supabase/client";
-import {
-  recordTransaction,
-  upsertBatch,
-  type InventoryBatch,
-  type InventoryTxnType,
-} from "./inventory";
+import { getDB } from "./local-db";
+import { recordTransaction, upsertBatch, type InventoryBatch, type InventoryTxnType } from "./inventory";
 
-/** Batches at a location with their current stock (base units). */
-export async function listLocationBatches(
-  productId: string,
-  warehouseId: string,
-  sectionId?: string | null,
-) {
-  let q = supabase
-    .from("inventory_batches")
-    .select("*")
-    .eq("product_id", productId)
-    .eq("warehouse_id", warehouseId);
-  if (sectionId) q = q.eq("section_id", sectionId);
-  const { data, error } = await q
-    .order("expiry_date", { ascending: true, nullsFirst: false })
-    .order("created_at", { ascending: true });
-  if (error) throw error;
-  return data as InventoryBatch[];
+export async function listLocationBatches(productId: string, warehouseId: string, sectionId?: string | null): Promise<InventoryBatch[]> {
+  const db = await getDB();
+  const batches = await db.getAll("inventory_batches");
+
+  let filtered = batches.filter(
+    (b) => b.product_id === productId && b.warehouse_id === warehouseId
+  );
+
+  if (sectionId) {
+    filtered = filtered.filter((b) => b.section_id === sectionId);
+  }
+
+  return filtered.sort((a, b) => {
+    const aExp = a.expiry_date ? new Date(a.expiry_date).getTime() : Infinity;
+    const bExp = b.expiry_date ? new Date(b.expiry_date).getTime() : Infinity;
+    if (aExp !== bExp) return aExp - bExp;
+    return new Date(a.created_at).getTime() - new Date(b.created_at).getTime();
+  });
 }
 
 interface StockInArgs {
@@ -36,7 +32,6 @@ interface StockInArgs {
   notes?: string | null;
 }
 
-/** Upsert (find-or-create) a batch then post a stock_in transaction. */
 export async function performStockIn(args: StockInArgs) {
   const batch = await upsertBatch({
     product_id: args.product_id,
@@ -45,6 +40,7 @@ export async function performStockIn(args: StockInArgs) {
     batch_number: args.batch_number ?? null,
     expiry_date: args.expiry_date ?? null,
   });
+
   return recordTransaction({
     transaction_type: "stock_in",
     product_id: args.product_id,
@@ -67,6 +63,7 @@ interface OutArgs {
   quantity: number;
   notes?: string | null;
 }
+
 export async function performOutOrCount(args: OutArgs) {
   return recordTransaction({
     transaction_type: args.type,
@@ -93,7 +90,7 @@ interface TransferArgs {
   quantity: number;
   notes?: string | null;
 }
-/** Two-leg transfer: transfer_out at source, transfer_in at destination (upsert batch). */
+
 export async function performTransfer(args: TransferArgs) {
   await recordTransaction({
     transaction_type: "transfer_out",
@@ -105,6 +102,7 @@ export async function performTransfer(args: TransferArgs) {
     quantity: args.quantity,
     notes: args.notes ?? null,
   });
+
   const destBatch = await upsertBatch({
     product_id: args.product_id,
     warehouse_id: args.dest_warehouse_id,
@@ -112,6 +110,7 @@ export async function performTransfer(args: TransferArgs) {
     batch_number: args.dest_batch_number ?? null,
     expiry_date: args.dest_expiry_date ?? null,
   });
+
   return recordTransaction({
     transaction_type: "transfer_in",
     product_id: args.product_id,

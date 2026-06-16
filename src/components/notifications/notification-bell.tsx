@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from "react";
 import { Link } from "@tanstack/react-router";
-import { Bell, CheckCheck, Loader2 } from "lucide-react";
+import { Bell, CheckCheck, Loader as Loader2 } from "lucide-react";
 import {
   AppNotification,
   listNotifications,
@@ -11,15 +11,10 @@ import {
   categoryLabel,
 } from "@/lib/notifications";
 import { Button } from "@/components/ui/button";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
-import { supabase } from "@/integrations/supabase/client";
 
 export function NotificationBell() {
   const [open, setOpen] = useState(false);
@@ -40,27 +35,7 @@ export function NotificationBell() {
   useEffect(() => {
     refresh();
     const iv = setInterval(refresh, 60_000);
-    let sub: any;
-    try {
-      sub = (supabase as any)
-        .channel("notifications-bell")
-        .on(
-          "postgres_changes",
-          { event: "*", schema: "public", table: "notifications" },
-          () => refresh(),
-        )
-        .subscribe();
-    } catch {
-      /* realtime not enabled — polling fallback */
-    }
-    return () => {
-      clearInterval(iv);
-      try {
-        sub?.unsubscribe?.();
-      } catch {
-        /* ignore */
-      }
-    };
+    return () => clearInterval(iv);
   }, [refresh]);
 
   useEffect(() => {
@@ -99,12 +74,7 @@ export function NotificationBell() {
       <PopoverContent align="end" className="w-[380px] p-0">
         <div className="flex items-center justify-between p-3 border-b">
           <div className="font-semibold text-sm">Notifications</div>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={handleMarkAll}
-            disabled={loading || count === 0}
-          >
+          <Button variant="ghost" size="sm" onClick={handleMarkAll} disabled={loading || count === 0}>
             {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <CheckCheck className="h-3 w-3" />}
             <span className="ml-1 text-xs">Mark all read</span>
           </Button>
@@ -117,10 +87,7 @@ export function NotificationBell() {
               {items.map((n) => (
                 <li
                   key={n.id}
-                  className={cn(
-                    "p-3 text-sm cursor-pointer hover:bg-accent",
-                    !n.read_at && "bg-accent/40",
-                  )}
+                  className={cn("p-3 text-sm cursor-pointer hover:bg-accent", !n.read_at && "bg-accent/40")}
                   onClick={() => handleItemClick(n)}
                 >
                   <div className="flex items-start justify-between gap-2">
@@ -140,11 +107,7 @@ export function NotificationBell() {
           )}
         </ScrollArea>
         <div className="p-2 border-t text-center">
-          <Link
-            to="/notifications"
-            className="text-xs text-primary hover:underline"
-            onClick={() => setOpen(false)}
-          >
+          <Link to="/notifications" className="text-xs text-primary hover:underline" onClick={() => setOpen(false)}>
             View all notifications
           </Link>
         </div>
